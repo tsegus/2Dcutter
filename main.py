@@ -1,13 +1,10 @@
-# 2Dcutter ver4.0 — main entry
-# New features:
-# - currency support
-# - polished summary tables
-# - white-background cut labels
-# - Lucida Sans Unicode for PDF
-# - stacked summary tables (A layout)
+# 2Dcutter ver4.1 — main entry
+# - Moved ignore-wrap-validation to config.properties
+# - Clean error reporting (no traceback)
+# - PDF generation skipped or allowed based on config
 
 import argparse
-from io_utils import parse_items, parse_materials, parse_properties
+from io_utils import parse_items, parse_materials, parse_properties, parse_bool
 from wrap_rules import validate_wrapping
 from packing import assign_any_items_to_materials, build_boards_for_material
 from costing import compute_summary
@@ -15,13 +12,12 @@ from pdf_export import generate_pdf
 
 
 def main():
-    parser = argparse.ArgumentParser(description="2Dcutter 4.0 polished build")
+    parser = argparse.ArgumentParser(description="2Dcutter 4.1 polished build")
     parser.add_argument("items_csv", help="items.csv input")
     parser.add_argument("materials_csv", help="materials.csv input")
     parser.add_argument("config_properties", help="config.properties input")
     parser.add_argument("output_pdf", help="output PDF path")
-    parser.add_argument("--ignore-wrap-validation", action="store_true",
-                        help="ignore wrap-size rules (debug mode)")
+    # NOTE: CLI ignore-wrap-validation removed in 4.1 (now config-based)
     args = parser.parse_args()
 
     # --- LOAD INPUT FILES ---
@@ -29,15 +25,32 @@ def main():
     materials = parse_materials(args.materials_csv)
     cfg = parse_properties(args.config_properties)
 
+    # --- CONFIG FLAGS ---
+    ignore_wrap_val = parse_bool(cfg.get("ignore-wrap-validation", "false"))
+
     # --- WRAP VALIDATION ---
-    if not args.ignore_wrap_validation:
+    try:
         validate_wrapping(items)
+        wrap_ok = True
+    except ValueError as ve:
+        wrap_ok = False
+        message = str(ve).strip()
+
+        if ignore_wrap_val:
+            print("\n[WARNING] Wrapping validation failed but ignored (ignore-wrap-validation=true):")
+            print(message)
+            print("Proceeding to generate PDF anyway.\n")
+        else:
+            print("\n[ERROR] Wrapping validation failed:")
+            print(message)
+            print("No PDF created. To override, set ignore-wrap-validation=true in config.properties.\n")
+            return  # STOP execution
 
     # --- ASSIGN MATERIALS ---
     assign_any_items_to_materials(
         items,
         materials,
-        enforce_wrap_rules=not args.ignore_wrap_validation
+        enforce_wrap_rules=not ignore_wrap_val
     )
 
     # Group items by material
@@ -45,11 +58,11 @@ def main():
     for item in items:
         items_by_material.setdefault(item.material_key, []).append(item)
 
-    # --- CONFIG VALUES ---
+    # --- CONFIG COST VALUES ---
     kerf = float(cfg.get("kerf", "4.0"))
     cut_cost = float(cfg.get("cut_cost", "0.0"))
     wrap_cost = float(cfg.get("side_wrapping_cost", "0.0"))
-    currency = cfg.get("currency", "zł")  # NEW IN 4.0
+    currency = cfg.get("currency", "zł")
 
     # --- PACKING ---
     material_boards = {}
@@ -59,11 +72,11 @@ def main():
             mat,
             its,
             kerf,
-            enforce_wrap_rules=not args.ignore_wrap_validation
+            enforce_wrap_rules=not ignore_wrap_val
         )
         material_boards[mat_name] = boards
 
-    # --- SUMMARY CALC ---
+    # --- SUMMARY ---
     summary = compute_summary(
         material_boards=material_boards,
         materials=materials,
