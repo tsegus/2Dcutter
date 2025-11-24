@@ -65,13 +65,14 @@ MONO_NAME = "Monospace_4_0"
 
 
 def register_fonts():
-    global LUCIDA_NAME
+    global LUCIDA_NAME, MONO_NAME
 
     """
     Try to register Lucida Sans Unicode. If the TTF is not available,
-    fallback to Helvetica. For monospace numeric table cells, use Courier.
+    fallback to Helvetica. For monospace numeric table cells, use builtin Courier.
     """
 
+    # Try Lucida Sans Unicode from common OS paths
     possible = [
         "/usr/share/fonts/truetype/lucida/LucidaSansUnicode.ttf",
         "/usr/share/fonts/truetype/LucidaSansUnicode.ttf",
@@ -95,8 +96,9 @@ def register_fonts():
         # fallback → Helvetica
         LUCIDA_NAME = "Helvetica"
 
-    # Register monospace (Courier always available)
-    pdfmetrics.registerFont(TTFont(MONO_NAME, "Courier"))
+    # MONOSPACE FONT FIX:
+    # Use builtin Courier — DO NOT register a TTF called "Courier"
+    MONO_NAME = "Courier"
 
 
 # ------------------------------------------------------------
@@ -147,8 +149,9 @@ def draw_item_rect(c: canvas.Canvas,
     """
     Draw rectangle + centered label for a placed item.
     """
+    # Outline only
     c.setStrokeColor(item_color)
-    c.setFillColor(None)
+    # No fill color needed; fill=0 on the rect handles transparency
     c.rect(x_pt, y_top_pt - h_pt, w_pt, h_pt, stroke=1, fill=0)
 
     # Label in middle
@@ -157,6 +160,120 @@ def draw_item_rect(c: canvas.Canvas,
     c.setFillColor(item_color)
     c.setFont(LUCIDA_NAME, font_size)
     c.drawCentredString(cx, cy, label)
+
+
+# ------------------------------------------------------------
+# KERF RECTANGLES + BOARD DRAWING (MISSING PART 2)
+# ------------------------------------------------------------
+
+def draw_cut_rect(c: canvas.Canvas,
+                  cr: CutRect,
+                  board_x0_pt: float,
+                  board_y0_pt: float,
+                  scale: float,
+                  cuts_color: Color,
+                  font_size: float = 6):
+    """
+    Render a kerf rectangle and a centered label with white background.
+    (No fill color set — fill=0 in rect handles transparency.)
+    """
+    x_pt = board_x0_pt + cr.x_mm * scale
+    y_pt_top = board_y0_pt - cr.y_mm * scale
+    w_pt = cr.width_mm * scale
+    h_pt = cr.height_mm * scale
+
+    # Outline only — do NOT setFillColor(None)
+    c.setStrokeColor(cuts_color)
+
+    # Draw rectangle
+    c.rect(x_pt, y_pt_top - h_pt, w_pt, h_pt, stroke=1, fill=0)
+
+    # Centered label
+    cx = x_pt + w_pt / 2
+    cy = y_pt_top - h_pt / 2
+    draw_cut_label(c, f"{int(cr.cut_length_mm)}", cx, cy, font_size, cuts_color, mono=True)
+
+
+
+def draw_board_page(c: canvas.Canvas,
+                    page_width_pt: float, page_height_pt: float,
+                    margin_mm: float,
+                    board_color: Color, item_color: Color, cuts_color: Color,
+                    generate_cuts: bool,
+                    board: BoardLayout,
+                    board_number_for_material: int,
+                    total_boards_for_material: int,
+                    currency: str):
+    """
+    Draws:
+      - Header
+      - Board outline
+      - Items
+      - Kerf rectangles
+    """
+
+    margin_pt = mm_to_pt(margin_mm)
+    header_h_mm = 20.0
+    header_h_pt = mm_to_pt(header_h_mm)
+
+    usable_w_pt = page_width_pt - 2 * margin_pt
+    usable_h_pt = page_height_pt - 2 * margin_pt - header_h_pt
+
+    board_w_mm = board.width_mm
+    board_h_mm = board.length_mm
+
+    scale = min(
+        usable_w_pt / board_w_mm if board_w_mm > 0 else 1,
+        usable_h_pt / board_h_mm if board_h_mm > 0 else 1
+    )
+
+    board_x0_pt = margin_pt + (usable_w_pt - board_w_mm * scale) / 2
+    board_y0_pt = page_height_pt - margin_pt - header_h_pt
+
+    # HEADER
+    c.setFont(LUCIDA_NAME, 14)
+    c.setFillColor(board_color)
+    c.setStrokeColor(board_color)
+
+    mat = board.material
+    board_type = board.classify_board_size()
+    type_label = {
+        "full": "full board",
+        "narrow_half": "narrow half board",
+        "wide_half": "wide half board"
+    }[board_type]
+
+    header_text = (
+        f"Material: {mat.name}, size: {mat.width_mm} x {mat.length_mm} mm "
+        f"(board {board_number_for_material}/{total_boards_for_material}, {type_label})"
+    )
+    c.drawString(margin_pt, page_height_pt - margin_pt - 12, header_text)
+
+    # BOARD OUTLINE
+    c.setStrokeColor(board_color)
+    c.rect(
+        board_x0_pt,
+        board_y0_pt - board_h_mm * scale,
+        board_w_mm * scale,
+        board_h_mm * scale,
+        stroke=1,
+        fill=0
+    )
+
+    # DRAW ITEMS
+    for p in board.placed_items:
+        x_pt = board_x0_pt + p.x_mm * scale
+        y_top_pt = board_y0_pt - p.y_mm * scale
+        w_pt = p.width_mm * scale
+        h_pt = p.height_mm * scale
+
+        label = f"{p.spec.name}.({int(p.height_mm)}x{int(p.width_mm)})"
+        draw_item_rect(c, x_pt, y_top_pt, w_pt, h_pt, item_color, label, font_size=8)
+
+    # DRAW KERF CUTS
+    if generate_cuts:
+        for cr in board.cut_rects:
+            draw_cut_rect(c, cr, board_x0_pt, board_y0_pt, scale, cuts_color, font_size=6)
 
 
 # -----------------------------------------------------
