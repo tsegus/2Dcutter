@@ -65,17 +65,18 @@ MONO_NAME = "Monospace_4_0"
 
 
 def register_fonts():
+    global LUCIDA_NAME
+
     """
     Try to register Lucida Sans Unicode. If the TTF is not available,
     fallback to Helvetica. For monospace numeric table cells, use Courier.
     """
 
-    # Attempt to locate lucida font — place your own TTF if needed
     possible = [
         "/usr/share/fonts/truetype/lucida/LucidaSansUnicode.ttf",
         "/usr/share/fonts/truetype/LucidaSansUnicode.ttf",
         "/Library/Fonts/LucidaSansUnicode.ttf",
-        "C:/Windows/Fonts/l_10646.ttf",  # common Windows Lucida Unicode
+        "C:/Windows/Fonts/l_10646.ttf",
         "C:/Windows/Fonts/LSANS.TTF",
     ]
 
@@ -92,11 +93,11 @@ def register_fonts():
             pdfmetrics.registerFont(TTFont(LUCIDA_NAME, lucida_path))
     else:
         # fallback → Helvetica
-        global LUCIDA_NAME
         LUCIDA_NAME = "Helvetica"
 
     # Register monospace (Courier always available)
     pdfmetrics.registerFont(TTFont(MONO_NAME, "Courier"))
+
 
 # ------------------------------------------------------------
 # WHITE BACKGROUND LABEL FOR CUT LENGTHS
